@@ -1,6 +1,6 @@
 import { Server as SocketIOServer, Socket } from 'socket.io'
 import { Coordinate } from '@shared/types'
-import { SocketEvents } from '@server/socket/socket-events'
+import { SocketEvents } from '@shared/events'
 
 export const setupDrawSocket = (
   io: SocketIOServer<SocketEvents>,
@@ -11,10 +11,10 @@ export const setupDrawSocket = (
   function drawLine(data: {
     current: Coordinate
     next: Coordinate
-    roomId: string
+    gameId: string
   }) {
     socket
-      .to(data.roomId)
+      .to(data.gameId)
       .emit('draw-receive', { current: data.current, next: data.next })
   }
 }

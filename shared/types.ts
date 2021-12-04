@@ -3,7 +3,14 @@ export type Coordinate = {
   y: number
 }
 
-export type Room = {
+export type Player = {
   id: string
-  players: string[]
+  name: string
+  isLeader: boolean
+}
+
+export type Game = {
+  id: string
+  status: 'lobby' | 'playing' | 'done'
+  players: Player[]
 }

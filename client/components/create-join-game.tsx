@@ -13,14 +13,14 @@ import {
 import { useForm } from 'react-hook-form'
 import { css } from '@emotion/react'
 
-type CreateRoomProps = {
+type Props = {
   onCreate: () => void
-  onJoin: (roomId: string) => void
+  onJoin: (gameId: string) => void
 }
 
-export const CreateJoinRoom = (props: CreateRoomProps) => {
+export const CreateJoinGame = (props: Props) => {
   const { onCreate, onJoin } = props
-  const { handleSubmit, register, reset } = useForm<{ roomId: string }>()
+  const { handleSubmit, register, reset } = useForm<{ gameId: string }>()
 
   return (
     <Flex direction="column">
@@ -36,13 +36,13 @@ export const CreateJoinRoom = (props: CreateRoomProps) => {
             display: 'flex';
           `}
           onSubmit={handleSubmit((data) => {
-            onJoin(data.roomId)
+            onJoin(data.gameId)
             reset()
           })}
         >
           <FormControl id="email">
             <Flex>
-              <Input {...register('roomId')} placeholder="Enter a room id" />
+              <Input {...register('gameId')} placeholder="Enter a game id" />
               <Button type="submit" colorScheme="blue" variant="outline">
                 Join
               </Button>

@@ -4,11 +4,11 @@ import { socket } from '@socket/io'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 type CanvasProps = {
-  roomId: string
+  gameId: string
 }
 
 export const Canvas = (props: CanvasProps) => {
-  const { roomId } = props
+  const { gameId } = props
   const height = 400
   const width = 600
 
@@ -56,11 +56,11 @@ export const Canvas = (props: CanvasProps) => {
 
       if (mousePosition) {
         drawLine(mousePosition, next)
-        socket.emit('draw-send', { current: mousePosition, next, roomId })
+        socket.emit('draw-send', { current: mousePosition, next, gameId })
         mousePositionRef.current = next
       }
     },
-    [roomId]
+    [gameId]
   )
 
   const paintStart = (e: MouseEvent | Touch) => {

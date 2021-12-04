@@ -4,18 +4,19 @@ import { Button } from '@chakra-ui/react'
 import { css } from '@emotion/react'
 import { Canvas } from '@components/canvas'
 import { socket } from '@socket/io' // todo fix this ugly ass shit
-import { CreateJoinRoom } from '@components/create-join-room'
+import { CreateJoinGame } from '@components/create-join-game'
 import { v4 as uuidv4 } from 'uuid'
 import { ProfileForm } from '@components/profile-form'
+import { Player } from '@shared/types'
 
 const Home: NextPage = () => {
-  const [roomId, setRoomId] = useState<string>()
-  const [players, setPlayers] = useState<string[]>([])
+  const [gameId, setgameId] = useState<string>()
+  const [players, setPlayers] = useState<Player[]>([])
   const [playerProfile, setPlayerProfile] =
     useState<{ id: string; name: string }>()
 
   useEffect(() => {
-    const roomId = localStorage.getItem('roomId')
+    const gameId = localStorage.getItem('gameId')
     const profile = localStorage.getItem('profile')
 
     if (profile) {
@@ -23,9 +24,13 @@ const Home: NextPage = () => {
         const parsedProfile = JSON.parse(profile)
         setPlayerProfile(parsedProfile)
 
-        if (roomId) {
+        if (gameId) {
           console.log('rejoining')
-          socket.emit('room-join', { playerId: parsedProfile.id, roomId })
+          socket.emit('join-game', {
+            playerId: parsedProfile.id,
+            gameId,
+            name: parsedProfile.name,
+          })
         }
       } catch (e) {
         // nah
@@ -36,50 +41,57 @@ const Home: NextPage = () => {
 
   useEffect(() => {
     socket.on('exception', console.error)
-    socket.on('room-created', (data) => {
-      setRoomId(data.room.id)
-      setPlayers(data.room.players)
-      localStorage.setItem('roomId', data.room.id)
+    socket.on('game-created', (data) => {
+      setgameId(data.game.id)
+      setPlayers(data.game.players)
+      localStorage.setItem('gameId', data.game.id)
     })
 
     socket.on('game-start', (data) => {
       console.log('game start')
-      setRoomId(data.room.id)
-      setPlayers(data.room.players)
+      setgameId(data.game.id)
+      setPlayers(data.game.players)
     })
 
     socket.on('player-left', (data) => {
-      setPlayers(data.room.players)
+      setPlayers(data.game.players)
     })
 
     socket.on('player-joined', (data) => {
-      setRoomId(data.room.id)
-      setPlayers(data.room.players)
+      setgameId(data.game.id)
+      setPlayers(data.game.players)
       console.log('player-joined')
     })
   }, [])
 
-  const leaveRoom = () => {
-    if (roomId && playerProfile?.id) {
-      socket.emit('leave-room', { roomId, playerId: playerProfile.id })
-      localStorage.removeItem('roomId')
-      setRoomId(undefined)
+  const leaveGame = () => {
+    if (gameId && playerProfile?.id) {
+      socket.emit('leave-game', { gameId, playerId: playerProfile.id })
+      localStorage.removeItem('gameId')
+      setgameId(undefined)
       setPlayers([])
     }
   }
 
-  const handleJoinRoom = (roomId: string) => {
-    if (playerProfile?.id) {
-      socket.emit('room-join', { roomId, playerId: playerProfile?.id })
-      localStorage.setItem('roomId', roomId)
-      setRoomId(roomId)
+  const handleJoinGame = (gameId: string) => {
+    if (playerProfile) {
+      socket.emit('join-game', {
+        gameId,
+        playerId: playerProfile.id,
+        name: playerProfile.name,
+      })
+      localStorage.setItem('gameId', gameId)
+      setgameId(gameId)
     }
   }
 
-  const handleCreateRoom = () => {
+  const handleCreateGame = () => {
     console.log(playerProfile)
     playerProfile?.id &&
-      socket.emit('create-room', { playerId: playerProfile.id })
+      socket.emit('create-game', {
+        playerId: playerProfile.id,
+        name: playerProfile.name,
+      })
   }
 
   const createProfile = (values: { name: string }) => {
@@ -105,10 +117,10 @@ const Home: NextPage = () => {
       `}
     >
       <pre>{JSON.stringify(playerProfile, null, 2)}</pre>
-      {!roomId && (
-        <CreateJoinRoom onJoin={handleJoinRoom} onCreate={handleCreateRoom} />
+      {!gameId && (
+        <CreateJoinGame onJoin={handleJoinGame} onCreate={handleCreateGame} />
       )}
-      {roomId && (
+      {gameId && (
         <div
           css={css`
             display: flex;
@@ -130,7 +142,7 @@ const Home: NextPage = () => {
               </span>
             </p>
             <p>
-              Connected to room{' '}
+              Connected to game{' '}
               <span
                 css={css`
                   font-weight: bold;
@@ -138,11 +150,11 @@ const Home: NextPage = () => {
                   text-transform: uppercase;
                 `}
               >
-                {roomId}
+                {gameId}
               </span>
             </p>
-            <Button colorScheme="red" onClick={leaveRoom}>
-              Leave room
+            <Button colorScheme="red" onClick={leaveGame}>
+              Leave game
             </Button>
           </div>
           <div>
@@ -151,7 +163,7 @@ const Home: NextPage = () => {
                 font-weight: bold;
               `}
             >
-              Players in room
+              Players in game
             </p>
             <ul
               css={css`
@@ -159,13 +171,15 @@ const Home: NextPage = () => {
               `}
             >
               {players?.map((player) => (
-                <li key={player}>{player}</li>
+                <li key={player.id}>
+                  {player.name} {player.isLeader && '👑'}
+                </li>
               ))}
             </ul>
           </div>
         </div>
       )}
-      {roomId && <Canvas roomId={roomId} />}
+      {gameId && <Canvas gameId={gameId} />}
     </div>
   )
 }

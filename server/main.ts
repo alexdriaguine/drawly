@@ -3,7 +3,7 @@ import next from 'next'
 import http from 'http'
 import { setupSocketIO } from '@server/socket/setup-socket'
 import { NextServer } from 'next/dist/server/next'
-import { createRoomService } from './rooms/room-service'
+import { createGameService } from './game/game-service'
 
 const handleNextRequest =
   (nextApp: NextServer) => (req: Request, res: Response) => {
@@ -20,9 +20,9 @@ async function main() {
   const app = express()
   const httpServer = http.createServer(app)
 
-  const roomService = createRoomService()
+  const gameService = createGameService()
 
-  setupSocketIO({ httpServer, roomService })
+  setupSocketIO({ httpServer, gameService })
 
   app.use(express.json())
   app.use(
@@ -31,8 +31,8 @@ async function main() {
     })
   )
 
-  app.get('/rooms', (req, res) => {
-    res.json(roomService.rooms)
+  app.get('/games', (req, res) => {
+    res.json(gameService.games)
   })
 
   app.all('*', handleNextRequest(nextApp))
