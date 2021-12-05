@@ -5,10 +5,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 type CanvasProps = {
   gameId: string
+  disabled: boolean
 }
 
 export const Canvas = (props: CanvasProps) => {
-  const { gameId } = props
+  const { gameId, disabled } = props
   const height = 400
   const width = 600
 
@@ -40,27 +41,21 @@ export const Canvas = (props: CanvasProps) => {
 
   const paint = useCallback(
     (e: MouseEvent | Touch) => {
-      if (!canvasRef.current) {
-        return
-      }
-
       const canvas = canvasRef.current
       const isDrawing = isDrawingRef.current
       const mousePosition = mousePositionRef.current
-      if (!isDrawing) {
-        return
-      }
-      const x = e.pageX - canvas.offsetLeft
-      const y = e.pageY - canvas.offsetTop
-      const next = { x, y }
+      if (canvas && !disabled && isDrawing && mousePosition) {
+        const x = e.pageX - canvas.offsetLeft
+        const y = e.pageY - canvas.offsetTop
+        const next = { x, y }
 
-      if (mousePosition) {
         drawLine(mousePosition, next)
         socket.emit('draw-send', { current: mousePosition, next, gameId })
+
         mousePositionRef.current = next
       }
     },
-    [gameId]
+    [disabled, gameId]
   )
 
   const paintStart = (e: MouseEvent | Touch) => {
@@ -84,10 +79,19 @@ export const Canvas = (props: CanvasProps) => {
     handler(touch)
   }
 
+  const touchPaintStart = wrapTouch(paintStart)
+  const touchPaint = wrapTouch(paint)
+  const touchPaintStop = wrapTouch(paintStop)
+
   useEffect(() => {
     socket.on('draw-receive', (event) => {
       const { current, next } = event
       drawLine(current, next)
+    })
+
+    socket.on('round-started', (event) => {
+      const canvas = canvasRef.current
+      canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
     })
   }, [])
 
@@ -97,11 +101,6 @@ export const Canvas = (props: CanvasProps) => {
     }
 
     const canvas = canvasRef.current
-
-    console.log('setup effect')
-    const touchPaintStart = wrapTouch(paintStart)
-    const touchPaint = wrapTouch(paint)
-    const touchPaintStop = wrapTouch(paintStop)
 
     canvas.addEventListener('mousedown', paintStart)
     canvas.addEventListener('mousemove', paint)
@@ -118,7 +117,7 @@ export const Canvas = (props: CanvasProps) => {
       canvas.removeEventListener('touchmove', touchPaint)
       canvas.removeEventListener('touchend', touchPaintStop)
     }
-  }, [paint])
+  }, [paint, touchPaint, touchPaintStart, touchPaintStop])
 
   return (
     <canvas

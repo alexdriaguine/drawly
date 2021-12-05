@@ -2,7 +2,7 @@
   "name": "drawer",
   "private": true,
   "scripts": {
-    "dev": "nodemon",
+    "dev": "fkill :3000 && nodemon",
     "build:client": "next build",
     "build:server": "tsc --project tsconfig.server.json",
     "build": "pnpm build:client && pnpm build:server",

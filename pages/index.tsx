@@ -7,69 +7,97 @@ import { socket } from '@socket/io' // todo fix this ugly ass shit
 import { CreateJoinGame } from '@components/create-join-game'
 import { v4 as uuidv4 } from 'uuid'
 import { ProfileForm } from '@components/profile-form'
-import { Player } from '@shared/types'
+import { Game as GameType, GameStatus, Player } from '@shared/types'
+
+type Game = Pick<GameType, 'id' | 'players' | 'score' | 'status'>
+const initialGame: Game = {
+  id: '',
+  players: [],
+  score: {},
+  status: 'unkown',
+}
 
 const Home: NextPage = () => {
-  const [gameId, setgameId] = useState<string>()
-  const [players, setPlayers] = useState<Player[]>([])
-  const [playerProfile, setPlayerProfile] =
-    useState<{ id: string; name: string }>()
+  const [game, setGame] = useState<Game>(initialGame)
+  const [playerProfile, setPlayerProfile] = useState<Omit<Player, 'isLeader'>>()
+  const [currentDrawingId, setCurrentDrawingId] = useState<string>()
+  const [socketId, setSocketId] = useState<string>()
 
   useEffect(() => {
-    const gameId = localStorage.getItem('gameId')
-    const profile = localStorage.getItem('profile')
-
-    if (profile) {
-      try {
-        const parsedProfile = JSON.parse(profile)
-        setPlayerProfile(parsedProfile)
-
-        if (gameId) {
-          console.log('rejoining')
-          socket.emit('join-game', {
-            playerId: parsedProfile.id,
-            gameId,
-            name: parsedProfile.name,
-          })
-        }
-      } catch (e) {
-        // nah
-        console.log('No profile found')
-      }
-    }
+    socket.on('connect', () => {
+      setSocketId(socket.id)
+    })
   }, [])
 
   useEffect(() => {
-    socket.on('exception', console.error)
-    socket.on('game-created', (data) => {
-      setgameId(data.game.id)
-      setPlayers(data.game.players)
-      localStorage.setItem('gameId', data.game.id)
+    socket.on('connect', () => {
+      setSocketId(socket.id)
+      const gameId = localStorage.getItem('gameId')
+      const profile = localStorage.getItem('profile')
+      if (profile) {
+        try {
+          const parsedProfile = JSON.parse(profile)
+          setPlayerProfile(parsedProfile)
+
+          if (gameId) {
+            socket.emit('join-game', {
+              playerId: parsedProfile.id,
+              gameId,
+              name: parsedProfile.name,
+              socketId: socket.id,
+            })
+          }
+        } catch (e) {
+          // nah
+        }
+      }
+    })
+    socket.on('exception', (data) => {
+      // todo: show a toast or something
+      console.log('exception', data)
+      setGame(initialGame)
     })
 
-    socket.on('game-start', (data) => {
-      console.log('game start')
-      setgameId(data.game.id)
-      setPlayers(data.game.players)
-    })
+    socket.on('connected', (data) => console.log(data))
 
     socket.on('player-left', (data) => {
-      setPlayers(data.game.players)
+      setGame((game) => ({ ...game, players: data.game.players }))
     })
 
     socket.on('player-joined', (data) => {
-      setgameId(data.game.id)
-      setPlayers(data.game.players)
-      console.log('player-joined')
+      console.log('data')
+      localStorage.setItem('gameId', data.game.id)
+      setGame(data.game)
+      console.log('player-joined', data)
+    })
+
+    socket.on('game-started', (data) => {
+      setGame((game) => ({ ...game, status: data.game.status }))
+    })
+
+    socket.on('round-started', (data) => {
+      console.log('start next roun', data)
+      setCurrentDrawingId(data.drawingPlayerId)
     })
   }, [])
 
+  const startGame = () => {
+    if (game.id) {
+      socket.emit('start-game', { gameId: game.id })
+    }
+  }
+
+  const nextRound = () => {
+    if (game.id) {
+      socket.emit('start-next-round', { gameId: game.id })
+    }
+  }
+
   const leaveGame = () => {
-    if (gameId && playerProfile?.id) {
-      socket.emit('leave-game', { gameId, playerId: playerProfile.id })
+    if (game?.id && playerProfile?.id) {
+      socket.emit('leave-game', { gameId: game.id, playerId: playerProfile.id })
       localStorage.removeItem('gameId')
-      setgameId(undefined)
-      setPlayers([])
+      setGame(initialGame)
     }
   }
 
@@ -79,107 +107,117 @@ const Home: NextPage = () => {
         gameId,
         playerId: playerProfile.id,
         name: playerProfile.name,
+        socketId: socket.id,
       })
-      localStorage.setItem('gameId', gameId)
-      setgameId(gameId)
     }
   }
 
   const handleCreateGame = () => {
-    console.log(playerProfile)
     playerProfile?.id &&
       socket.emit('create-game', {
         playerId: playerProfile.id,
         name: playerProfile.name,
+        socketId: socket.id,
       })
   }
 
   const createProfile = (values: { name: string }) => {
     const id = uuidv4()
     const profile = { ...values, id }
-    setPlayerProfile(profile)
+    setPlayerProfile({ ...profile, socketId: socket.id })
     localStorage.setItem('profile', JSON.stringify(profile))
   }
 
-  // lazy ass "auth"
   if (!playerProfile) {
     return <ProfileForm onSubmit={createProfile} />
   }
 
+  const isYourTurn =
+    game.status === 'playing' && playerProfile.id === currentDrawingId
+
+  const isLeader = game.players.find((p) => p.id === playerProfile.id)?.isLeader
+
   return (
-    <div
-      css={css`
-        max-width: 600px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        padding: 16px;
-      `}
-    >
-      <pre>{JSON.stringify(playerProfile, null, 2)}</pre>
-      {!gameId && (
+    <div>
+      {!game.id && (
         <CreateJoinGame onJoin={handleJoinGame} onCreate={handleCreateGame} />
       )}
-      {gameId && (
+      {game.id && (
         <div
           css={css`
             display: flex;
-            flex-direction: column;
             justify-content: space-between;
           `}
         >
-          <div>
-            <p>
-              Your id:{' '}
-              <span
-                css={css`
-                  font-weight: bold;
-                  text-decoration: underline;
-                  text-transform: uppercase;
-                `}
-              >
-                {socket.id}
-              </span>
-            </p>
-            <p>
-              Connected to game{' '}
-              <span
-                css={css`
-                  font-weight: bold;
-                  text-decoration: underline;
-                  text-transform: uppercase;
-                `}
-              >
-                {gameId}
-              </span>
-            </p>
+          <div
+            css={css`
+              display: flex;
+              flex-direction: column;
+            `}
+          >
+            {isLeader && (
+              <>
+                {game.status === 'playing' ? (
+                  <Button onClick={nextRound}>Next round</Button>
+                ) : (
+                  <Button onClick={startGame} colorScheme="green">
+                    Start game
+                  </Button>
+                )}
+              </>
+            )}
             <Button colorScheme="red" onClick={leaveGame}>
               Leave game
             </Button>
           </div>
+          <div>{isYourTurn && <p>Your turn drawing!</p>}</div>
           <div>
-            <p
-              css={css`
-                font-weight: bold;
-              `}
-            >
-              Players in game
-            </p>
+            <p>GameId: {game.id}</p>
             <ul
               css={css`
                 list-style: none;
               `}
             >
-              {players?.map((player) => (
+              {game.players.map((player) => (
                 <li key={player.id}>
-                  {player.name} {player.isLeader && '👑'}
+                  <span
+                    css={css`
+                      font-weight: ${player.id === playerProfile.id
+                        ? 'bold'
+                        : 'normal'};
+                    `}
+                  >
+                    {player.name}
+                  </span>{' '}
+                  {player.isLeader && '👑'}
                 </li>
               ))}
             </ul>
           </div>
         </div>
       )}
-      {gameId && <Canvas gameId={gameId} />}
+      {game.id && (
+        <div>
+          <Canvas disabled={!isYourTurn} gameId={game.id} />
+          <div></div>
+        </div>
+      )}
+      <pre
+        css={css`
+          background-color: #383434;
+          color: white;
+          font-family: monospace;
+          font-size: 12px;
+          padding: 16px;
+          line-height: 1.5;
+        `}
+      >
+        {JSON.stringify(
+          { playerId: playerProfile.id, socketId, game },
+          null,
+          2
+        )}
+      </pre>
     </div>
   )
 }

@@ -1,7 +1,6 @@
 import http from 'http'
 import { Server as SocketIOServer, Socket } from 'socket.io'
-import { setupgameSocket } from '@server/game/game-socket'
-import { setupDrawSocket } from '@server/draw/draw-socket'
+import { setupGameSocket } from '@server/game/game-socket'
 import { GameService } from '@server/game/game-service'
 import { SocketEvents } from '@shared/events'
 
@@ -28,11 +27,22 @@ export const setupSocketIO = (options: {
   const { httpServer, gameService } = options
   const io = new SocketIOServer<SocketEvents>(httpServer)
 
+  io.use((socket, next) => {
+    console.log('socket middleware')
+    try {
+      console.log('try')
+      next()
+    } catch (err) {
+      console.log('catch err')
+      // @ts-ignore
+      next(err)
+    }
+  })
+
   io.sockets.on('connection', (socket) => {
-    // list of how to emit stuf with sockets
+    socket.emit('connected', 'connected')
     // https://stackoverflow.com/a/10099325
     setupGeneralSocket(io, socket)
-    setupgameSocket(io, socket, gameService)
-    setupDrawSocket(io, socket)
+    setupGameSocket(io, socket, gameService)
   })
 }

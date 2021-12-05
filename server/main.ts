@@ -44,8 +44,12 @@ async function main() {
 
 main()
 
-process.on('unhandledRejection', (err) => {
-  console.error('unhandledRejection')
-  console.error(err)
+process.on('unhandledRejection', (error, promise) => {
+  console.error(`Unhandled rejection`)
+  console.error(`Promise: ${promise}`)
+  console.error(`Reason: ${error}`)
+  console.log(typeof error)
+  // @ts-ignore
+  console.log(`Stack:\n${error.stack}`)
   process.exit(1)
 })
