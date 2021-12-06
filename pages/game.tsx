@@ -7,31 +7,46 @@ import { socket } from '@socket/io' // todo fix this ugly ass shit
 import { CreateJoinGame } from '@components/create-join-game'
 import { v4 as uuidv4 } from 'uuid'
 import { ProfileForm } from '@components/profile-form'
-import { Game as GameType, Player } from '@shared/types'
+import { Game as GameType, GameStatus, Player } from '@shared/types'
 import { Guesses } from '@components/guesses'
 import {
   GameStartedEventData,
   GuessMadeEventData,
   PlayerJoinedEventData,
   PlayerLeftEventData,
+  RoundEndEventData,
   RoundStartedEventData,
   SendWordEventData,
 } from '@shared/events'
 import { Score } from '@components/score'
 
-type Game = Pick<GameType, 'id' | 'players' | 'score' | 'status'>
+type Game = Pick<
+  GameType,
+  | 'id'
+  | 'status'
+  | 'currentDrawingPlayer'
+  | 'currentWordLength'
+  | 'players'
+  | 'roundTime'
+  | 'maxRounds'
+  | 'currentRound'
+  | 'score'
+>
 const initialGame: Game = {
   id: '',
   players: [],
   score: {},
   status: 'unknown',
+  currentDrawingPlayer: '',
+  currentWordLength: 0,
+  roundTime: 0,
+  maxRounds: 0,
+  currentRound: 0,
 }
 
 const GamePage: NextPage = () => {
   const [game, setGame] = useState<Game>(initialGame)
   const [playerProfile, setPlayerProfile] = useState<Omit<Player, 'isLeader'>>()
-  const [currentDrawingId, setCurrentDrawingId] = useState<string>()
-  const [score, setScore] = useState<Record<string, number>>({})
   const [potentialWords, setPotentialWords] = useState<string[]>()
   const [currentWord, setCurrentWord] = useState<string>()
 
@@ -61,14 +76,15 @@ const GamePage: NextPage = () => {
       setGame(data.game)
     }
     const handleGameStarted = (data: GameStartedEventData) => {
-      setGame((game) => ({ ...game, status: data.game.status }))
+      setGame(data.game)
     }
     const handleRoundStarted = (data: RoundStartedEventData) => {
-      setCurrentDrawingId(data.drawingPlayerId)
+      setGame((game) => ({ ...game, status: data.gameStatus }))
     }
     const handleSendWord = (data: SendWordEventData) => {
-      console.log('Receivd word', data.words)
       setPotentialWords(data.words)
+    }
+    const handleRoundEnd = (data: RoundEndEventData) => {
       setGame((game) => ({ ...game, status: data.gameStatus }))
     }
 
@@ -77,9 +93,10 @@ const GamePage: NextPage = () => {
       .on('exception', handleExceptio)
       .on('player-left', handlePlayerLeft)
       .on('player-joined', handlePlayerJoined)
-      .on('game-started', handleGameStarted)
-      .on('round-started', handleRoundStarted)
+      .on('prepare-next-round', handleGameStarted)
+      .on('round-start', handleRoundStarted)
       .on('send-words', handleSendWord)
+      .on('round-end', handleRoundEnd)
 
     return () => {
       socket
@@ -87,21 +104,16 @@ const GamePage: NextPage = () => {
         .off('exception', handleExceptio)
         .off('player-left', handlePlayerLeft)
         .off('player-joined', handlePlayerJoined)
-        .off('game-started', handleGameStarted)
-        .off('round-started', handleRoundStarted)
+        .off('prepare-next-round', handleGameStarted)
+        .off('round-start', handleRoundStarted)
         .off('send-words', handleSendWord)
+        .off('round-end', handleRoundEnd)
     }
   }, [])
 
   const startGame = () => {
     if (game.id) {
       socket.emit('start-game', { gameId: game.id })
-    }
-  }
-
-  const nextRound = () => {
-    if (game.id) {
-      socket.emit('start-next-round', { gameId: game.id })
     }
   }
 
@@ -141,7 +153,7 @@ const GamePage: NextPage = () => {
   }
 
   const handleGuessReceived = (data: GuessMadeEventData) => {
-    setScore(data.score)
+    setGame((game) => ({ ...game, score: data.score }))
   }
 
   const makeGuess = (guess: string) => {
@@ -159,10 +171,15 @@ const GamePage: NextPage = () => {
     return <ProfileForm onSubmit={createProfile} />
   }
 
+  const playingStatuses: GameStatus[] = ['choosing-word', 'drawing']
+
   const isYourTurn =
-    game.status === 'playing' && playerProfile.id === currentDrawingId
+    playingStatuses.includes(game.status) &&
+    playerProfile.id === game.currentDrawingPlayer
 
   const isLeader = game.players.find((p) => p.id === playerProfile.id)?.isLeader
+  const canDrawOnCanvas = game.status === 'drawing' && isYourTurn
+  const canMakeGuess = game.status === 'drawing' && !isYourTurn
 
   return (
     <Box
@@ -195,16 +212,7 @@ const GamePage: NextPage = () => {
             </p>
             {isLeader && (
               <>
-                {game.status === 'playing' ? (
-                  <Button
-                    css={css`
-                      margin-bottom: 8px;
-                    `}
-                    onClick={nextRound}
-                  >
-                    Next round
-                  </Button>
-                ) : (
+                {game.status === 'lobby' && (
                   <Button
                     css={css`
                       margin-bottom: 8px;
@@ -227,14 +235,12 @@ const GamePage: NextPage = () => {
               Leave game
             </Button>
           </Box>
-          {isYourTurn && game.status === 'playing' ? (
-            <p>🖌Draw a {currentWord}</p>
-          ) : (
-            <p>Make a guess</p>
-          )}
+          {game.status === 'drawing' &&
+            (isYourTurn ? <p>🖌Draw a {currentWord}</p> : <p>Make a guess</p>)}
+
           <Score
             gameStatus={game.status}
-            score={score}
+            score={game.score}
             players={game.players}
           />
         </Box>
@@ -249,14 +255,26 @@ const GamePage: NextPage = () => {
           {isYourTurn && game.status === 'choosing-word' && potentialWords && (
             <Box>
               {potentialWords.map((word) => (
-                <Button key={word}>{word}</Button>
+                <Button
+                  onClick={() => {
+                    socket.emit('choose-word', {
+                      gameId: game.id,
+                      word,
+                    })
+                    setPotentialWords(undefined)
+                    setCurrentWord(word)
+                  }}
+                  key={word}
+                >
+                  {word}
+                </Button>
               ))}
             </Box>
           )}
-          <Canvas disabled={!isYourTurn} gameId={game.id} />
+          <Canvas disabled={!canDrawOnCanvas} gameId={game.id} />
           <Guesses
             players={game.players}
-            disabled={isYourTurn}
+            disabled={!canMakeGuess}
             onGuess={makeGuess}
             onGuessReceived={handleGuessReceived}
           />

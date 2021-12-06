@@ -27,17 +27,19 @@ export type JoinGameEventData = {
 export type LeaveGameEventData = { gameId: string; playerId: string }
 export type PlayerLeftEventData = { game: GameWithoutSecrets }
 export type PlayerJoinedEventData = { game: GameWithoutSecrets }
-export type GameStartedEventData = { game: GameWithoutSecrets }
+export type GameStartedEventData = {
+  game: GameWithoutSecrets
+}
 export type StartGameEventData = { gameId: string }
 export type StartNextRoundEventData = { gameId: string }
-export type RoundStartedEventData = { drawingPlayerId: string }
+export type RoundStartedEventData = { roundEnd: Date; gameStatus: GameStatus }
 export type DrawReceiveEventData = { current: Coordinate; next: Coordinate }
 export type DrawSendEventData = {
   current: Coordinate
   next: Coordinate
   gameId: string
 }
-export type SendWordEventData = { words: string[]; gameStatus: GameStatus }
+export type SendWordEventData = { words: string[] }
 export type MakeGuessEventData = {
   guess: string
   gameId: string
@@ -50,4 +52,6 @@ export type GuessMadeEventData = {
 }
 export type GameEndEventData = {}
 export type ChooseWordEventData = { word: string; gameId: string }
-export type RoundEndEventData = {}
+export type RoundEndEventData = {
+  gameStatus: GameStatus
+}

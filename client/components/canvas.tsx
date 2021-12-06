@@ -89,17 +89,17 @@ export const Canvas = (props: CanvasProps) => {
       const { current, next } = event
       drawLine(current, next)
     }
-    const handleRoundStarted = (event: RoundStartedEventData) => {
+    const handleRoundStarted = () => {
       const canvas = canvasRef.current
       canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
     }
     socket
       .on('draw-receive', handleDrawReceive)
-      .on('round-started', handleRoundStarted)
+      .on('prepare-next-round', handleRoundStarted)
 
     return () => {
       socket
-        .off('round-started', handleRoundStarted)
+        .off('round-end', handleRoundStarted)
         .off('draw-receive', handleDrawReceive)
     }
   }, [])

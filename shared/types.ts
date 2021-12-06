@@ -12,8 +12,9 @@ export type Player = {
 
 export type GameStatus =
   | 'lobby'
-  | 'playing'
   | 'choosing-word'
+  | 'drawing'
+  | 'round-end'
   | 'done'
   | 'unknown'
 
@@ -39,4 +40,5 @@ export type Game = {
   maxRounds: number
   currentRound: number
   roundTime: number // seconds
+  nextRoundEnd?: Date
 }

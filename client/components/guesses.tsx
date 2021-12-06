@@ -37,7 +37,7 @@ export const Guesses = (props: Props) => {
       setGuesses([])
     }
     socket.on('guess-made', handleGuessMade)
-    socket.on('start-next-round', handleStartNextRound)
+    socket.on('prepare-next-round', handleStartNextRound)
 
     return () => {
       socket.off('guess-made', handleGuessMade)

@@ -17,10 +17,10 @@ import {
   SendWordEventData,
   SocketEvents,
   StartGameEventData,
-  StartNextRoundEventData,
 } from '@shared/events'
-import { Coordinate, Game, Guess } from '@shared/types'
+import { Game } from '@shared/types'
 import { socket } from '@socket/io'
+import addSeconds from 'date-fns/addSeconds'
 import { Server as SocketIOServer, Socket } from 'socket.io'
 import { ReservedOrUserListener } from 'socket.io/dist/typed-events'
 import { GameError } from './game-error'
@@ -31,7 +31,7 @@ export type GameEvents = {
   'create-game': (data: CreateGameEventData) => void
   'game-created': (data: GameCreatedEventData) => void
   'start-game': (data: StartGameEventData) => void
-  'game-started': (data: GameStartedEventData) => void
+  'prepare-next-round': (data: GameStartedEventData) => void
   'game-end': (data: GameEndEventData) => void
 
   // Player lifecyle
@@ -41,9 +41,8 @@ export type GameEvents = {
   'player-left': (data: PlayerLeftEventData) => void
 
   // Game round lifecycle
-  'start-next-round': (data: StartNextRoundEventData) => void
   'round-end': (data: RoundEndEventData) => void
-  'round-started': (data: RoundStartedEventData) => void
+  'round-start': (data: RoundStartedEventData) => void
 
   // Word events
   'choose-word': (data: ChooseWordEventData) => void
@@ -74,25 +73,9 @@ export function setupGameSocket(
   socket: Socket<SocketEvents>,
   gameService: GameService
 ) {
-  // internal helpers
   function omitSecrets(game: Game) {
     const { currentWord: _, wordsDrawn: __, ...gameWithoutSecrets } = game
     return gameWithoutSecrets
-  }
-  async function emitNewRoundEvents(gameId: string) {
-    const game = await gameService.nextRound({ gameId })
-
-    io.in(game.id).emit('round-started', {
-      drawingPlayerId: game.currentDrawingPlayer,
-    })
-    const drawingPlayer = game.players.find(
-      (p) => p.id === game.currentDrawingPlayer
-    )
-  }
-
-  // event handlers
-  async function handleStartRound({ gameId }: StartNextRoundEventData) {
-    emitNewRoundEvents(gameId)
   }
 
   async function handleCreateGame(data: CreateGameEventData) {
@@ -102,7 +85,7 @@ export function setupGameSocket(
       name,
       socketId,
       maxRounds: 5,
-      roundTime: 30,
+      roundTime: 5,
     })
 
     if (game) {
@@ -111,39 +94,81 @@ export function setupGameSocket(
     }
   }
 
-  async function handleStartGame(data: StartGameEventData) {
-    const game = await gameService.startGame({ gameId: data.gameId })
+  /**
+   * 1. Start game -> handleStartGame, setup
+   * 2. handleNextRound() aka send 3 words to drawing player
+   * 3. player chooses words, emits handle-choose-words
+   * 4. handleStartRound() aka round starts. timer counts down
+   * 5. handleRoundEnd() aka break for 5-10 seconds, update clients game state
+   * 6. handleNextRound
+   *
+   */
 
-    io.in(data.gameId).emit('game-started', { game: omitSecrets(game) })
+  /**
+   * socket event that fires when the "leader" presses the Start game button
+   * prepares the game and then fires of the prepare-next-round event, sending
+   * some words to the drawing player
+   */
+  async function handleGameStarted(data: StartGameEventData) {
+    const { game, potentialWords } = await gameService.startGame({
+      gameId: data.gameId,
+    })
 
     const drawingPlayer = game.players.find(
       (p) => p.id === game.currentDrawingPlayer
     )
 
     if (!drawingPlayer) {
-      throw new GameError('Not game found')
+      throw new GameError('Could not find a player for drawing')
     }
-    // io.to(drawingPlayer.socketId).emit('send-words', {
-    //   words: [game.currentWord, 'poop', 'penis'],
-    //   gameStatus: 'choosing-word',
-    // })
 
-    // const tick = game.roundTime * 1000
-    // const gameInterval = setInterval(async () => {
-    //   emitNewRoundEvents(data.gameId)
-    //   const game = await gameService.getGame({ gameId: data.gameId })
+    io.in(data.gameId).emit('prepare-next-round', {
+      game: omitSecrets(game),
+    })
 
-    //   if (game) {
-    //     if (game.currentRound === game.maxRounds) {
-    //       clearInterval(gameInterval)
-    //       io.in(game.id).emit('game-end', {})
-    //     }
-    //   }
+    io.to(drawingPlayer.socketId).emit('send-words', {
+      words: potentialWords,
+    })
+  }
 
-    //   if (game?.currentRound === game?.maxRounds) {
-    //     clearInterval(gameInterval)
-    //   }
-    // }, tick)
+  async function handleChooseWord({ gameId, word }: ChooseWordEventData) {
+    // players chooses a word. update it
+    const game = await gameService.startNextRound({ gameId, word })
+
+    io.in(game.id).emit('round-start', {
+      roundEnd: addSeconds(Date.now(), game.roundTime),
+      gameStatus: game.status,
+    })
+
+    // todo: better timers, base on timestamps
+
+    setTimeout(async () => {
+      const game = await gameService.endRound({ gameId })
+      io.in(game.id).emit('round-end', { gameStatus: game.status })
+
+      setTimeout(async () => {
+        const { game, potentialWords } = await gameService.prepareNextRound({
+          gameId,
+        })
+        const drawingPlayer = game.players.find(
+          (p) => p.id === game.currentDrawingPlayer
+        )
+
+        if (!drawingPlayer) {
+          throw new Error('Drawing player not found')
+        }
+
+        io.in(game.id).emit('prepare-next-round', {
+          game: omitSecrets(game),
+        })
+
+        io.to(drawingPlayer.socketId).emit('send-words', {
+          words: potentialWords,
+        })
+
+        // emit a new round
+      }, 5000)
+    }, game.roundTime * 1000)
   }
 
   async function handleJoinGame(data: JoinGameEventData) {
@@ -160,38 +185,6 @@ export function setupGameSocket(
     socket.leave(gameId)
 
     io.in(game.id).emit('player-left', { game: omitSecrets(game) })
-  }
-
-  async function handleChooseWord({ gameId, word }: ChooseWordEventData) {
-    await gameService.setWordForRound({ gameId, word })
-    const game = await gameService.nextRound({ gameId })
-
-    io.in(game.id).emit('round-started', {
-      drawingPlayerId: game.currentDrawingPlayer,
-    })
-
-    async function emitNewRoundEvents(gameId: string) {
-      const drawingPlayer = game.players.find(
-        (p) => p.id === game.currentDrawingPlayer
-      )
-    }
-
-    // const tick = game.roundTime * 1000
-    // const gameInterval = setInterval(async () => {
-    //   emitNewRoundEvents(data.gameId)
-    //   const game = await gameService.getGame({ gameId: data.gameId })
-
-    //   if (game) {
-    //     if (game.currentRound === game.maxRounds) {
-    //       clearInterval(gameInterval)
-    //       io.in(game.id).emit('game-end', {})
-    //     }
-    //   }
-
-    //   if (game?.currentRound === game?.maxRounds) {
-    //     clearInterval(gameInterval)
-    //   }
-    // }, tick)
   }
 
   async function handleMakeGuess({
@@ -226,9 +219,8 @@ export function setupGameSocket(
     .on('create-game', handleSocketError(handleCreateGame))
     .on('join-game', handleSocketError(handleJoinGame))
     .on('leave-game', handleSocketError(handleLeaveGame))
-    .on('start-game', handleSocketError(handleStartGame))
+    .on('start-game', handleSocketError(handleGameStarted))
     .on('draw-send', handleSocketError(handleDrawLine))
-    .on('start-next-round', handleSocketError(handleStartRound))
     .on('make-guess', handleSocketError(handleMakeGuess))
     .on('choose-word', handleSocketError(handleChooseWord))
 }

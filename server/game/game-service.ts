@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
+import { addSeconds } from 'date-fns'
 import { Game } from '@shared/types'
 import { GameError } from './game-error'
 import { getWord } from './words'
@@ -130,8 +131,6 @@ export function createGameService() {
       throw new GameError('Game not found', 'NOT_FOUND')
     }
 
-    game.status = 'choosing-word'
-
     const playerIds = game.players.map((p) => p.id)
     game.drawingQueue = shuffleArray(playerIds)
     game.score = game.players.reduce(
@@ -141,10 +140,11 @@ export function createGameService() {
       }),
       {}
     )
-    return game
+
+    return prepareNextRound({ gameId })
   }
 
-  async function nextRound({ gameId }: { gameId: string }) {
+  async function prepareNextRound({ gameId }: { gameId: string }) {
     const game = await _getGame({ gameId })
 
     if (!game) {
@@ -156,15 +156,13 @@ export function createGameService() {
     if (!currentDrawingPlayer) {
       throw new GameError('Could not assign next drawing player')
     }
-
+    game.status = 'choosing-word'
     game.currentDrawingPlayer = currentDrawingPlayer
     game.drawingQueue.push(game.currentDrawingPlayer)
-    game.currentWord = getWord(game.wordsDrawn)
-    game.currentWordLength = game.currentWord.length
     game.wordsDrawn.push(game.currentWord)
     game.currentRound += 1
 
-    return game
+    return { game, potentialWords: ['hell', 'snow', 'ball'] }
   }
 
   async function makeGuess({
@@ -196,7 +194,7 @@ export function createGameService() {
     return { guess, score: game.score }
   }
 
-  async function setWordForRound({
+  async function startNextRound({
     gameId,
     word,
   }: {
@@ -207,9 +205,22 @@ export function createGameService() {
     if (!game) {
       throw new GameError('Game not found', 'NOT_FOUND')
     }
-    game.status = 'playing'
+    game.status = 'drawing'
 
     game.currentWord = word
+    game.wordsDrawn.push(word)
+    game.nextRoundEnd = addSeconds(Date.now(), game.roundTime)
+    return game
+  }
+
+  async function endRound({ gameId }: { gameId: string }) {
+    const game = await _getGame({ gameId })
+    if (!game) {
+      throw new GameError('Game not found', 'NOT_FOUND')
+    }
+
+    game.status = 'round-end'
+
     return game
   }
 
@@ -219,9 +230,10 @@ export function createGameService() {
     removePlayer,
     leaveGame,
     startGame,
-    nextRound,
+    prepareNextRound,
     makeGuess,
-    setWordForRound,
+    startNextRound,
+    endRound,
     getGame: _getGame,
     get games() {
       return games
