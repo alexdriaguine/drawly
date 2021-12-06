@@ -1,26 +1,10 @@
+import { v4 as uuidv4 } from 'uuid'
 import { Game } from '@shared/types'
-
-type GameErrorCode = 'NOT_FOUND' | 'UNKOWN'
-
-export class GameError extends Error {
-  public code?: GameErrorCode
-  constructor(message: string, code: GameErrorCode = 'UNKOWN') {
-    super(message)
-    code = code
-  }
-}
-
-const words = ['house', 'ball', 'car', 'bike', 'balloon', 'pistol', 'mountain']
+import { GameError } from './game-error'
+import { getWord } from './words'
 
 function generateGameId() {
   return (Math.random() + 1).toString(36).substring(7)
-}
-
-function getWord(alreadySeenWords: string[]) {
-  // Todo: larger list. Keep in file
-  // if word has been seen, fetch a new one.
-  const word = words[Math.floor(Math.random() * words.length)]
-  return word
 }
 
 function shuffleArray<T>(array: T[]): T[] {
@@ -34,20 +18,24 @@ function shuffleArray<T>(array: T[]): T[] {
 export function createGameService() {
   let games: Game[] = []
 
-  function getGame({ gameId }: { gameId: string }): Promise<Game | undefined> {
+  function _getGame({ gameId }: { gameId: string }): Promise<Game | undefined> {
     return Promise.resolve(
       games.find((game) => game.id.toLowerCase() === gameId.toLowerCase())
     )
   }
 
-  function createGame({
+  async function createGame({
     playerId,
     name,
     socketId,
+    maxRounds,
+    roundTime,
   }: {
     playerId: string
     name: string
     socketId: string
+    maxRounds: number
+    roundTime: number
   }): Promise<Game> {
     const gameId = generateGameId()
     const game: Game = {
@@ -59,6 +47,11 @@ export function createGameService() {
       score: {},
       currentDrawingPlayer: '',
       currentWord: '',
+      currentWordLength: 0,
+      guesses: [],
+      currentRound: 0,
+      maxRounds,
+      roundTime,
     }
 
     games.push(game)
@@ -76,7 +69,7 @@ export function createGameService() {
     name: string
     socketId: string
   }): Promise<Game> {
-    const game = await getGame({ gameId })
+    const game = await _getGame({ gameId })
     if (!game) {
       throw new GameError('Game not found', 'NOT_FOUND')
     }
@@ -90,10 +83,10 @@ export function createGameService() {
     game.players.push({ id: playerId, name, isLeader: false, socketId })
     game.drawingQueue.push(playerId)
 
-    return Promise.resolve(game)
+    return game
   }
 
-  function removePlayer({
+  async function removePlayer({
     playerId,
   }: {
     playerId: string
@@ -104,7 +97,7 @@ export function createGameService() {
         players: game.players.filter((p) => p.id !== playerId),
       }))
       .filter((game) => game.players.length > 0)
-    return Promise.resolve({ playerId })
+    return { playerId }
   }
 
   async function leaveGame({
@@ -114,35 +107,33 @@ export function createGameService() {
     playerId: string
     gameId: string
   }) {
-    const game = await getGame({ gameId })
+    const game = await _getGame({ gameId })
     if (!game) {
       throw new GameError('Game not found', 'NOT_FOUND')
     }
     game.players = game.players.filter((p) => p.id !== playerId)
     game.drawingQueue = game.drawingQueue.filter((id) => id !== playerId)
+
+    // check if someone is still leader
+
+    if (!game.players.some((p) => p.isLeader)) {
+      game.players[0].isLeader = true
+    }
     delete game.score[playerId]
 
-    return Promise.resolve(game)
+    return game
   }
 
   async function startGame({ gameId }: { gameId: string }) {
-    const game = await getGame({ gameId })
+    const game = await _getGame({ gameId })
     if (!game) {
       throw new GameError('Game not found', 'NOT_FOUND')
     }
 
-    game.status = 'playing'
-
-    // todo: make some kind of count down instead of emitting directly
-
-    // create a queue of who drawing order that moves
-
-    // [1, 2, 3, 4] first draw
-    // [2, 3, 4, 1] second draw
-    // [3, 4, 1, 2] third draw
+    game.status = 'choosing-word'
 
     const playerIds = game.players.map((p) => p.id)
-    game.drawingQueue = shuffleArray(playerIds) // shuffle?
+    game.drawingQueue = shuffleArray(playerIds)
     game.score = game.players.reduce(
       (acc, curr) => ({
         ...acc,
@@ -150,11 +141,11 @@ export function createGameService() {
       }),
       {}
     )
-    return Promise.resolve(game)
+    return game
   }
 
   async function nextRound({ gameId }: { gameId: string }) {
-    const game = await getGame({ gameId })
+    const game = await _getGame({ gameId })
 
     if (!game) {
       throw new GameError('Game not found', 'NOT_FOUND')
@@ -169,8 +160,57 @@ export function createGameService() {
     game.currentDrawingPlayer = currentDrawingPlayer
     game.drawingQueue.push(game.currentDrawingPlayer)
     game.currentWord = getWord(game.wordsDrawn)
+    game.currentWordLength = game.currentWord.length
+    game.wordsDrawn.push(game.currentWord)
+    game.currentRound += 1
 
-    return Promise.resolve(game)
+    return game
+  }
+
+  async function makeGuess({
+    gameId,
+    playerId,
+    text,
+    date,
+  }: {
+    gameId: string
+    playerId: string
+    text: string
+    date: Date
+  }) {
+    const game = await _getGame({ gameId })
+    if (!game) {
+      throw new GameError('Game not found', 'NOT_FOUND')
+    }
+    const isCorrect = text === game.currentWord
+
+    const guess = { date, id: uuidv4(), text, isCorrect, playerId }
+
+    if (isCorrect) {
+      // implement time based scores!
+      game.score[playerId] += 1
+    }
+
+    game.guesses.push(guess)
+
+    return { guess, score: game.score }
+  }
+
+  async function setWordForRound({
+    gameId,
+    word,
+  }: {
+    gameId: string
+    word: string
+  }) {
+    const game = await _getGame({ gameId })
+    if (!game) {
+      throw new GameError('Game not found', 'NOT_FOUND')
+    }
+    game.status = 'playing'
+
+    game.currentWord = word
+    return game
   }
 
   return {
@@ -180,6 +220,9 @@ export function createGameService() {
     leaveGame,
     startGame,
     nextRound,
+    makeGuess,
+    setWordForRound,
+    getGame: _getGame,
     get games() {
       return games
     },

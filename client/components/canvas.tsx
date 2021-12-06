@@ -1,4 +1,5 @@
 import { css } from '@emotion/react'
+import { DrawReceiveEventData, RoundStartedEventData } from '@shared/events'
 import { Coordinate } from '@shared/types'
 import { socket } from '@socket/io'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -84,15 +85,23 @@ export const Canvas = (props: CanvasProps) => {
   const touchPaintStop = wrapTouch(paintStop)
 
   useEffect(() => {
-    socket.on('draw-receive', (event) => {
+    const handleDrawReceive = (event: DrawReceiveEventData) => {
       const { current, next } = event
       drawLine(current, next)
-    })
-
-    socket.on('round-started', (event) => {
+    }
+    const handleRoundStarted = (event: RoundStartedEventData) => {
       const canvas = canvasRef.current
       canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height)
-    })
+    }
+    socket
+      .on('draw-receive', handleDrawReceive)
+      .on('round-started', handleRoundStarted)
+
+    return () => {
+      socket
+        .off('round-started', handleRoundStarted)
+        .off('draw-receive', handleDrawReceive)
+    }
   }, [])
 
   useEffect(() => {
@@ -109,7 +118,6 @@ export const Canvas = (props: CanvasProps) => {
     canvas.addEventListener('touchmove', touchPaint)
     canvas.addEventListener('touchend', touchPaintStop)
     return () => {
-      console.log('tear down!')
       canvas.removeEventListener('mousedown', paintStart)
       canvas.removeEventListener('mousemove', paint)
       canvas.removeEventListener('mouseup', paintStop)

@@ -27,18 +27,6 @@ export const setupSocketIO = (options: {
   const { httpServer, gameService } = options
   const io = new SocketIOServer<SocketEvents>(httpServer)
 
-  io.use((socket, next) => {
-    console.log('socket middleware')
-    try {
-      console.log('try')
-      next()
-    } catch (err) {
-      console.log('catch err')
-      // @ts-ignore
-      next(err)
-    }
-  })
-
   io.sockets.on('connection', (socket) => {
     socket.emit('connected', 'connected')
     // https://stackoverflow.com/a/10099325
