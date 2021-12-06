@@ -35,10 +35,11 @@ export type Game = {
   players: Player[]
   drawingQueue: string[]
   score: { [key: string]: number }
-  wordsDrawn: string[]
+  previousWords: string[]
   guesses: Guess[]
   maxRounds: number
   currentRound: number
   roundTime: number // seconds
-  nextRoundEnd?: Date
+  breakTime: number
+  nextRoundEnd: Date
 }

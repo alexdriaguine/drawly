@@ -20,28 +20,22 @@ import {
 } from '@shared/events'
 import { Score } from '@components/score'
 
-type Game = Pick<
+type Game = Omit<
   GameType,
-  | 'id'
-  | 'status'
-  | 'currentDrawingPlayer'
-  | 'currentWordLength'
-  | 'players'
-  | 'roundTime'
-  | 'maxRounds'
-  | 'currentRound'
-  | 'score'
+  'currentWord' | 'previousWords' | 'guesses' | 'drawingQueue'
 >
 const initialGame: Game = {
   id: '',
+  status: 'unknown',
   players: [],
   score: {},
-  status: 'unknown',
   currentDrawingPlayer: '',
   currentWordLength: 0,
   roundTime: 0,
+  breakTime: 0,
   maxRounds: 0,
   currentRound: 0,
+  nextRoundEnd: new Date(),
 }
 
 const GamePage: NextPage = () => {
@@ -79,7 +73,11 @@ const GamePage: NextPage = () => {
       setGame(data.game)
     }
     const handleRoundStarted = (data: RoundStartedEventData) => {
-      setGame((game) => ({ ...game, status: data.gameStatus }))
+      setGame((game) => ({
+        ...game,
+        status: data.gameStatus,
+        nextRoundEnd: data.nextRoundEnd,
+      }))
     }
     const handleSendWord = (data: SendWordEventData) => {
       setPotentialWords(data.words)
@@ -162,7 +160,6 @@ const GamePage: NextPage = () => {
         gameId: game.id,
         guess,
         playerId: playerProfile.id,
-        date: new Date(),
       })
     }
   }
@@ -271,7 +268,30 @@ const GamePage: NextPage = () => {
               ))}
             </Box>
           )}
-          <Canvas disabled={!canDrawOnCanvas} gameId={game.id} />
+          <div style={{ display: 'flex' }}>
+            <Canvas disabled={!canDrawOnCanvas} gameId={game.id} />
+            <Box>
+              <pre
+                css={css`
+                  font-size: 12px;
+                  font-family: monospace;
+                  padding: 16px;
+                  background-color: lightgrey;
+                `}
+              >
+                {JSON.stringify(
+                  {
+                    status: game.status,
+                    score: game.score,
+                    round: game.currentRound,
+                    nextRoundEnd: game.nextRoundEnd,
+                  },
+                  null,
+                  2
+                )}
+              </pre>
+            </Box>
+          </div>
           <Guesses
             players={game.players}
             disabled={!canMakeGuess}

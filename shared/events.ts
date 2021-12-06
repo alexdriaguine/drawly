@@ -7,7 +7,7 @@ type GenericSocketEvents = {
 }
 
 export type SocketEvents = GameEvents & GenericSocketEvents
-export type GameWithoutSecrets = Omit<Game, 'currentWord' | 'wordsDrawn'>
+export type GameWithoutSecrets = Omit<Game, 'currentWord' | 'previousWords'>
 
 export type CreateGameEventData = {
   playerId: string
@@ -32,7 +32,10 @@ export type GameStartedEventData = {
 }
 export type StartGameEventData = { gameId: string }
 export type StartNextRoundEventData = { gameId: string }
-export type RoundStartedEventData = { roundEnd: Date; gameStatus: GameStatus }
+export type RoundStartedEventData = {
+  nextRoundEnd: Date
+  gameStatus: GameStatus
+}
 export type DrawReceiveEventData = { current: Coordinate; next: Coordinate }
 export type DrawSendEventData = {
   current: Coordinate
@@ -44,7 +47,6 @@ export type MakeGuessEventData = {
   guess: string
   gameId: string
   playerId: string
-  date: Date
 }
 export type GuessMadeEventData = {
   guess: Guess

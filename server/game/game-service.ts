@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid'
-import { addSeconds } from 'date-fns'
+import { addSeconds, differenceInSeconds } from 'date-fns'
 import { Game } from '@shared/types'
 import { GameError } from './game-error'
-import { getWord } from './words'
+import { getWords } from './words'
 
 function generateGameId() {
   return (Math.random() + 1).toString(36).substring(7)
@@ -44,7 +44,7 @@ export function createGameService() {
       status: 'lobby',
       players: [{ id: playerId, name, isLeader: true, socketId }],
       drawingQueue: [playerId],
-      wordsDrawn: [],
+      previousWords: [],
       score: {},
       currentDrawingPlayer: '',
       currentWord: '',
@@ -53,6 +53,8 @@ export function createGameService() {
       currentRound: 0,
       maxRounds,
       roundTime,
+      breakTime: 5,
+      nextRoundEnd: new Date(Date.UTC(1970, 0, 1)),
     }
 
     games.push(game)
@@ -159,34 +161,39 @@ export function createGameService() {
     game.status = 'choosing-word'
     game.currentDrawingPlayer = currentDrawingPlayer
     game.drawingQueue.push(game.currentDrawingPlayer)
-    game.wordsDrawn.push(game.currentWord)
+    game.previousWords.push(game.currentWord)
     game.currentRound += 1
 
-    return { game, potentialWords: ['hell', 'snow', 'ball'] }
+    return { game, potentialWords: getWords(game.previousWords) }
   }
 
   async function makeGuess({
     gameId,
     playerId,
     text,
-    date,
   }: {
     gameId: string
     playerId: string
     text: string
-    date: Date
   }) {
     const game = await _getGame({ gameId })
     if (!game) {
       throw new GameError('Game not found', 'NOT_FOUND')
     }
-    const isCorrect = text === game.currentWord
+    const isCorrect = text.toLowerCase() === game.currentWord.toLowerCase()
 
-    const guess = { date, id: uuidv4(), text, isCorrect, playerId }
+    const guessMade = new Date()
+    const guess = { date: guessMade, id: uuidv4(), text, isCorrect, playerId }
+
+    const secondsUntilEndOfRound = differenceInSeconds(
+      game.nextRoundEnd,
+      guessMade
+    )
+    const pointInterval = 5
+    const points = Math.ceil(secondsUntilEndOfRound / pointInterval)
 
     if (isCorrect) {
-      // implement time based scores!
-      game.score[playerId] += 1
+      game.score[playerId] += points
     }
 
     game.guesses.push(guess)
@@ -208,7 +215,7 @@ export function createGameService() {
     game.status = 'drawing'
 
     game.currentWord = word
-    game.wordsDrawn.push(word)
+    game.previousWords.push(word)
     game.nextRoundEnd = addSeconds(Date.now(), game.roundTime)
     return game
   }

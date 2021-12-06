@@ -20,7 +20,6 @@ import {
 } from '@shared/events'
 import { Game } from '@shared/types'
 import { socket } from '@socket/io'
-import addSeconds from 'date-fns/addSeconds'
 import { Server as SocketIOServer, Socket } from 'socket.io'
 import { ReservedOrUserListener } from 'socket.io/dist/typed-events'
 import { GameError } from './game-error'
@@ -74,7 +73,7 @@ export function setupGameSocket(
   gameService: GameService
 ) {
   function omitSecrets(game: Game) {
-    const { currentWord: _, wordsDrawn: __, ...gameWithoutSecrets } = game
+    const { currentWord: _, previousWords: __, ...gameWithoutSecrets } = game
     return gameWithoutSecrets
   }
 
@@ -85,7 +84,7 @@ export function setupGameSocket(
       name,
       socketId,
       maxRounds: 5,
-      roundTime: 5,
+      roundTime: 10,
     })
 
     if (game) {
@@ -136,7 +135,7 @@ export function setupGameSocket(
     const game = await gameService.startNextRound({ gameId, word })
 
     io.in(game.id).emit('round-start', {
-      roundEnd: addSeconds(Date.now(), game.roundTime),
+      nextRoundEnd: game.nextRoundEnd,
       gameStatus: game.status,
     })
 
@@ -191,13 +190,11 @@ export function setupGameSocket(
     gameId,
     playerId,
     guess: text,
-    date,
   }: MakeGuessEventData) {
     const { guess, score } = await gameService.makeGuess({
       gameId,
       playerId,
       text,
-      date,
     })
 
     // socket.emit emits to the sender client

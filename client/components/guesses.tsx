@@ -21,7 +21,6 @@ export const Guesses = (props: Props) => {
 
   useEffect(() => {
     const handleGuessMade = (data: GuessMadeEventData) => {
-      console.log('guess made!')
       const player = players.find((p) => p.id === data.guess.playerId)
       setGuesses((guesses) => [
         ...guesses,
